@@ -1,0 +1,35 @@
+__pycache__/
+*.pyc
+.DS_Store
+.RData
+.Rhistory
+
+# Everything the experiments write
+logs/
+out/
+figures/
+results/*
+!results/paper_repro/
+results/paper_repro/*
+!results/paper_repro/s1/
+results/paper_repro/s1/*
+!results/paper_repro/s1/*.r
+third_party/baaz_ebvae/ours/regimen/res*/
+third_party/baaz_ebvae/ours/tacro/res*/
+
+# No data or trained model in this repository
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.numbers
+*.sas7bdat
+*.rds
+*.RData
+*.ckpt
+*.pt
+*.pth
+*.pkl
+*.npz
+*.npy
+*.zip

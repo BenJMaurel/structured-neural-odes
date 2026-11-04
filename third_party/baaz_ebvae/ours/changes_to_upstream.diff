@@ -1,0 +1,96 @@
+--- a/lib/utils/utils_shared.py
++++ b/lib/utils/utils_shared.py
+@@ -1,3 +1,4 @@
++import os as _os  # PATCHES (PharmaNODE comparison, 2026-10-03; opt-in env vars, defaults = original code): P1 BAAZ_PER_DOSE=1, P2 BAAZ_COV_COLS=a,b,c, P3 BAAZ_ENC_COL=ENC -- see ours/PATCHES.md
+ 
+ 
+ import torch
+@@ -313,7 +314,11 @@
+ 
+ 
+     # Truncate if needed
+-    if truncation > 0:
++    if getattr(batch, 'enc_mask', None) is not None and truncation > 0:   # PATCH P3: encoder sees exactly the flagged observations
++        mask_encoder = [batch.enc_mask[i][:len(t)].to(device) for i, t in enumerate(t_batch)]
++        t_enc_list = [t[m] for t, m in zip(t_batch, mask_encoder)]; x_enc_list = [x[m] for x, m in zip(x_batch, mask_encoder)]
++        t_cut_list = [t[~m] for t, m in zip(t_batch, mask_encoder)]; x_cut_list = [x[~m] for x, m in zip(x_batch, mask_encoder)]
++    elif truncation > 0:
+         t_enc_list, x_enc_list, mask_encoder, t_cut_list, x_cut_list = truncate_time_series(
+             t_batch, x_batch, truncation
+         )
+@@ -395,7 +400,7 @@
+   
+     cov = cov.float()
+ 
+-    cov = cov[:, :1]
++    cov = cov[:, :(len(_os.environ['BAAZ_COV_COLS'].split(',')) if _os.environ.get('BAAZ_COV_COLS') else 1)]   # PATCH P2 (original: cov[:, :1])
+     if cov.dim() == 3:
+         cov = cov.squeeze(0)
+      
+@@ -469,7 +474,13 @@
+         dose_tensor_expanded = dose_tensor
+     
+     # Repeat along columns to match max_doses
+-    dose_tensor_expanded = dose_tensor_expanded[:, :1].repeat(1, max_doses)  # [batch, max_doses]
++    if _os.environ.get('BAAZ_PER_DOSE') == '1':   # PATCH P1: each dose event keeps its own amount (dose change within a subject)
++        _d = dose_tensor_expanded[:, :max_doses]
++        if _d.size(1) < max_doses:
++            _d = torch.nn.functional.pad(_d, (0, max_doses - _d.size(1)))
++        dose_tensor_expanded = _d
++    else:
++        dose_tensor_expanded = dose_tensor_expanded[:, :1].repeat(1, max_doses)  # [batch, max_doses]
+     
+       
+ 
+--- a/lib/utils/utils_preprocess.py
++++ b/lib/utils/utils_preprocess.py
+@@ -1,3 +1,6 @@
++import os as _os  # PATCHES P2/P3 (opt-in env vars BAAZ_COV_COLS, BAAZ_ENC_COL; defaults = original) -- see ours/PATCHES.md
++class _Batch(tuple):  # PATCH P3: a tuple (unpacks exactly as before) that can carry the encoder mask
++    enc_mask = None
+ # -*- coding: utf-8 -*-
+ """
+ Clean, organized imports
+@@ -220,7 +223,10 @@
+             dose_times = torch.tensor(doses['TIME'].values / self.max_time, dtype=torch.float32)
+             amt = torch.tensor(doses['AMT'].values / self.max_dose, dtype=torch.float32)
+             evid = torch.tensor(doses['EVID'].values, dtype=torch.long)
+-            cov_ind=torch.tensor(obs['COV_IND'].values, dtype=torch.long)
++            if _os.environ.get('BAAZ_COV_COLS'):   # PATCH P2: per-subject vector of several (continuous) covariates
++                cov_ind = torch.tensor(group[_os.environ['BAAZ_COV_COLS'].split(',')].iloc[0].values.astype(float), dtype=torch.float32)
++            else:
++                cov_ind=torch.tensor(obs['COV_IND'].values, dtype=torch.long)
+             # Treatment (scalar per subject)
+             treatment = torch.tensor(group['TREATMENT'].iloc[0], dtype=torch.long)
+       
+@@ -233,7 +239,8 @@
+                 'cov_ind': cov_ind,
+                 'evid': evid,
+                 'subject_id': subject_id,
+-                'treatment': treatment
++                'treatment': treatment,
++                **({'enc': torch.tensor(obs[_os.environ['BAAZ_ENC_COL']].values.astype(bool))} if _os.environ.get('BAAZ_ENC_COL') else {})  # PATCH P3
+             })
+         return trajectories
+ 
+@@ -347,7 +354,7 @@
+         id_tensor = torch.stack(id_list)
+         treatment_tensor = torch.stack(treatment_list)
+ 
+-        return (
++        _out = _Batch((
+             id_tensor,
+             treatment_tensor,
+             t_padded,
+@@ -357,7 +364,10 @@
+             dose_tensor,
+             dose_times_padded,
+             evid_padded
+-        )
++        ))
++        if all('enc' in s_ for s_ in batch):   # PATCH P3: encoder mask padded to the batch length
++            _out.enc_mask = [s_['enc'].to(device) for s_ in batch]
++        return _out
+ 
+     return collate_fn
+ 

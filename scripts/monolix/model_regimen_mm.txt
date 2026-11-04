@@ -1,0 +1,19 @@
+DESCRIPTION: Baaz et al. regimen simulator, SATURABLE elimination ke*Km*A/(Km + A): 1-cpt first-order absorption, central amount starts at V, output = central amount
+
+[LONGITUDINAL]
+input = {ka, ke, V, Km}
+
+PK:
+depot(target = gut)
+
+EQUATION:
+odeType = stiff
+t_0 = 0
+gut_0 = 0
+cen_0 = V
+ddt_gut = -ka*gut
+ddt_cen = ka*gut - ke*Km*cen/(Km + cen)
+Cc = cen
+
+OUTPUT:
+output = Cc
